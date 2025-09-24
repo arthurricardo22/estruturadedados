@@ -1,103 +1,121 @@
 ﻿using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
-public class IncomingCall
+namespace TowerOfHanoi
 {
-public int Id { get; set; }
-public int ClientId { get; set; }
-public DateTime CallTime { get; set; }
-public DateTime StartTime { get; set; }
-public DateTime EndTime { get; set; }
-public string Consultant { get; set; }
+public class HanoiTower
+{
+public int DiscsCount { get; private set; }
+public int MovesCount { get; private set; }
+public Stack<int> From { get; private set; }
+public Stack<int> To { get; private set; }
+public Stack<int> Auxiliary { get; private set; }
+public event EventHandler<EventArgs> MoveCompleted;
+public HanoiTower(int discs)
+{
+DiscsCount = discs;
+From = new Stack<int>();
+To = new Stack<int>();
+Auxiliary = new Stack<int>();
+for (int i = 1; i <= discs; i++)
+{
+int size = discs - i + 1;
+From.Push(size);
 }
-public class CallCenter
-{
-private int _counter = 0;
-public ConcurrentQueue<IncomingCall> Calls { get; private set; }
-public CallCenter()
-{
-Calls = new ConcurrentQueue<IncomingCall>();
 }
-public int Call(int clientId)
+public void Start()
 {
-IncomingCall call = new IncomingCall()
-{
-Id = ++_counter,
-ClientId = clientId,
-CallTime = DateTime.Now
-};
-Calls.Enqueue(call);
-return Calls.Count;
+Move(DiscsCount, From, To, Auxiliary);
 }
-public IncomingCall Answer(string consultant)
+private void Move(int discs, Stack<int> from, Stack<int> to, Stack<int> auxiliary)
 {
-if (Calls.Count > 0 && Calls.TryDequeue(out IncomingCall call))
+if (discs > 0)
 {
-call.Consultant = consultant;
-call.StartTime = DateTime.Now;
-return call;
+Move(discs - 1, from, auxiliary, to);
+to.Push(from.Pop());
+MovesCount++;
+MoveCompleted?.Invoke(this, EventArgs.Empty);
+Move(discs - 1, auxiliary, to, from);
 }
-return null;
-}
-public void End(IncomingCall call)
-{
-call.EndTime = DateTime.Now;
-}
-public bool AreWaitingCalls()
-{
-return Calls.Count > 0;
 }
 }
 class Program
 {
+private const int DISCS_COUNT = 5;
+private const int DELAY_MS = 300;
+private static int _columnSize = 30;
 static void Main(string[] args)
 {
-CallCenter center = new CallCenter();
-Parallel.Invoke(
-() => CallersAction(center),
-() => ConsultantAction(center, "Marcin", ConsoleColor.Red),
-() => ConsultantAction(center, "James", ConsoleColor.Yellow),
-() => ConsultantAction(center, "Olivia", ConsoleColor.Green)
-);
+_columnSize = Math.Max(6, GetDiscWidth(DISCS_COUNT) + 2);
+HanoiTower algorithm = new HanoiTower(DISCS_COUNT);
+algorithm.MoveCompleted += Algorithm_Visualize;
+// estado inicial
+Algorithm_Visualize(algorithm, EventArgs.Empty);
+algorithm.Start();
+Console.WriteLine("\nFim da execução!");
+Console.ReadKey();
 }
-private static void CallersAction(CallCenter center)
+private static void Algorithm_Visualize(object sender, EventArgs e)
 {
-Random random = new Random();
-while (true)
-{
-int clientId = random.Next(1, 10000);
-int waitingCount = center.Call(clientId);
-Log($"Incoming call from {clientId}, waiting in the queue: {waitingCount}");
-Thread.Sleep(random.Next(1000, 5000));
+Console.Clear();
+HanoiTower algorithm = (HanoiTower)sender;
+if (algorithm.DiscsCount <= 0)
+return;
+char[][] visualization = InitializeVisualization(algorithm);
+PrepareColumn(visualization, 1, algorithm.DiscsCount, algorithm.From);
+PrepareColumn(visualization, 2, algorithm.DiscsCount, algorithm.To);
+PrepareColumn(visualization, 3, algorithm.DiscsCount, algorithm.Auxiliary);
+Console.WriteLine(Center("FROM") + Center("TO") + Center("AUXILIARY"));
+DrawVisualization(visualization);
+Console.WriteLine();
+Console.WriteLine($"Number of moves: {algorithm.MovesCount}");
+Console.WriteLine($"Number of discs: {algorithm.DiscsCount}");
+Thread.Sleep(DELAY_MS);
 }
-}
-private static void ConsultantAction(CallCenter center, string name, ConsoleColor color)
+private static char[][] InitializeVisualization(HanoiTower algorithm)
 {
-Random random = new Random();
-while (true)
+char[][] visualization = new char[algorithm.DiscsCount][];
+for (int y = 0; y < visualization.Length; y++)
 {
-IncomingCall call = center.Answer(name);
-if (call != null)
+visualization[y] = new char[_columnSize * 3];
+for (int x = 0; x < _columnSize * 3; x++)
 {
-Console.ForegroundColor = color;
-Log($"Call #{call.Id} from {call.ClientId} is answered by {call.Consultant}.");
-Console.ForegroundColor = ConsoleColor.Gray;
-Thread.Sleep(random.Next(1000, 10000));
-center.End(call);
-Console.ForegroundColor = color;
-Log($"Call #{call.Id} from {call.ClientId} is ended by {call.Consultant}.");
-Console.ForegroundColor = ConsoleColor.Gray;
-Thread.Sleep(random.Next(500, 1000));
-}
-else
-{
-Thread.Sleep(100);
+visualization[y][x] = ' ';
 }
 }
+return visualization;
 }
-private static void Log(string text)
+private static void PrepareColumn(char[][] visualization, int column, int discsCount,
+Stack<int> stack)
 {
-Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {text}");
+int margin = _columnSize * (column - 1);
+for (int y = 0; y < stack.Count; y++)
+{
+int size = stack.ElementAt(y);
+int row = discsCount - (stack.Count - y);
+int columnStart = margin + discsCount - size;
+int columnEnd = columnStart + GetDiscWidth(size);
+for (int x = columnStart; x <= columnEnd; x++)
+{
+visualization[row][x] = '=';
+}
+}
+}
+private static void DrawVisualization(char[][] visualization)
+{
+for (int y = 0; y < visualization.Length; y++)
+{
+Console.WriteLine(visualization[y]);
+}
+}
+private static string Center(string text)
+{
+int margin = (_columnSize - text.Length) / 2;
+return text.PadLeft(margin + text.Length).PadRight(_columnSize);
+}
+private static int GetDiscWidth(int size)
+{
+return 2 * size - 1; }
 }
 }
